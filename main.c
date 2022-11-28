@@ -10,6 +10,7 @@
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
+int i;
 struct broncoscountry {
     int WAITLINE;
     int CARNUM;
@@ -58,15 +59,14 @@ void print_data(int i){
 void* ready_queue() {
     int incoming;
     // I represents the time in minutes
-    int i;
     int pois;
     for (i = 0; i < MAXTIME; i++) {  
         pthread_mutex_lock(&mutex);
-        incoming = RUSS.WAITLINE;
         
         /* Proccess of the ready queue */
         // Gets the people arrived for the waiting queue
         RUSS.ARRIVED = poisson_return(i);
+        incoming = RUSS.WAITLINE;
         // Determines if the queue is full, rejects people if necessary 
         RUSS.WAITLINE = max_availability(incoming,i);
         
@@ -76,28 +76,33 @@ void* ready_queue() {
         // Signal the other threads
         pthread_cond_broadcast(&cond);
         print_data(i);
+        usleep(1);
     }
 
+    pthread_cond_broadcast(&cond);
     return NULL;
 }
 
 void* car() {
-    int i = 0;
-    int local_max = RUSS.MAXPERCAR;
-    int queue = RUSS.WAITLINE;
-
-    for (i = 0; i < MAXTIME; i++) {  
+    int local_max;
+    int queue;
+    while(i < MAXTIME) {  
         pthread_mutex_lock(&mutex);
         pthread_cond_wait(&cond,&mutex); 
+        
+        local_max = RUSS.MAXPERCAR;
+        queue = RUSS.WAITLINE;
 
         if ((queue - local_max) >= 0) {
             RUSS.WAITLINE -= local_max; 
+        //    printf("Pulled people\n");
+        }
+        else {
+            RUSS.WAITLINE = 0;
         }
 
         pthread_mutex_unlock(&mutex);
-        //printf("In for loop car\n");
     }
-    //printf("Out for loop car\n");
 
     return NULL;
 }
@@ -109,6 +114,7 @@ void set_defaults (int car_num, int max_per_car) {
 }
 
 int main () {
+    // Set the DEFAULTS HERE, CARNUM, MAXPERCAR
     set_defaults(4,7); 
 
     int car_num = RUSS.CARNUM;
