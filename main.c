@@ -13,6 +13,7 @@ pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 struct broncoscountry {
     int WAITLINE;
     int CARNUM;
+    int ARRIVED;
     int MAXPERCAR; 
     int REJECTED;
 } RUSS;
@@ -31,16 +32,28 @@ int poisson_return(int time) {
     return out;
 }
 
-void max_availability(int incoming, int pois, int time) {
-        if ((incoming + pois) > MAXWAITPEOPLE) {
-             
+int max_availability(int incoming, int time) {
+    int pois = RUSS.ARRIVED;
+    if ((incoming + pois) >= MAXWAITPEOPLE) {
+        if (incoming == MAXWAITPEOPLE) {
+            RUSS.REJECTED = pois;        
         }
         else {
-            incoming += pois;
-  
+            RUSS.REJECTED = (incoming + pois) - MAXWAITPEOPLE; 
+            incoming = MAXWAITPEOPLE;
         }
+    }
+    else {
+        incoming += pois;
+    }
 
+    return incoming;
 } 
+
+void print_data(int i){
+    printf("%d arrive %d reject %d wait-line %d at \n", i, RUSS.ARRIVED, RUSS.REJECTED
+            , RUSS.WAITLINE);
+}
 
 void* ready_queue() {
     int incoming;
@@ -50,11 +63,19 @@ void* ready_queue() {
     for (i = 0; i < MAXTIME; i++) {  
         pthread_mutex_lock(&mutex);
         incoming = RUSS.WAITLINE;
-
-        pois = poisson_return(i);
-        max_availability(incoming,pois,i);
-
+        
+        /* Proccess of the ready queue */
+        // Gets the people arrived for the waiting queue
+        RUSS.ARRIVED = poisson_return(i);
+        // Determines if the queue is full, rejects people if necessary 
+        RUSS.WAITLINE = max_availability(incoming,i);
+        
+        //pthread_cond_broadcast(&cond);
         pthread_mutex_unlock(&mutex);
+       
+        // Signal the other threads
+        pthread_cond_broadcast(&cond);
+        print_data(i);
     }
 
     return NULL;
@@ -62,13 +83,22 @@ void* ready_queue() {
 
 void* car() {
     int i = 0;
-    while (i < MAXTIME) { 
+    int local_max = RUSS.MAXPERCAR;
+    int queue = RUSS.WAITLINE;
+
+    for (i = 0; i < MAXTIME; i++) {  
         pthread_mutex_lock(&mutex);
         pthread_cond_wait(&cond,&mutex); 
 
+        if ((queue - local_max) >= 0) {
+            RUSS.WAITLINE -= local_max; 
+        }
+
         pthread_mutex_unlock(&mutex);
-        i++;
+        //printf("In for loop car\n");
     }
+    //printf("Out for loop car\n");
+
     return NULL;
 }
 
@@ -85,15 +115,18 @@ int main () {
     int max_per_car = RUSS.MAXPERCAR;
 
     pthread_t tid[car_num + 1];
-    pthread_create(&tid[0], NULL, ready_queue, NULL);
+    //pthread_create(&tid[0], NULL, ready_queue, NULL);
 
     for (int i = 1; i <= car_num; i++) {
         pthread_create(&tid[i], NULL, car, NULL);
     }
 
+    pthread_create(&tid[0], NULL, ready_queue, NULL);
+
     for (int i = 0; i <= car_num; i++) {
         pthread_join(tid[i],NULL);
     }
+
     pthread_mutex_destroy(&mutex);
     pthread_cond_destroy(&cond);
 
