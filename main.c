@@ -84,7 +84,6 @@ void* ready_queue() {
     // I represents the time in minutes
     for (i = 0; i < MAXTIME; i++) {  
         pthread_mutex_lock(&mutex);
-        print_data(i);
         /* Proccess of the ready queue */
         // Gets the people arrived for the waiting queue
         tempPois = poisson_return(i);
@@ -95,6 +94,7 @@ void* ready_queue() {
         // Determines if the queue is full, 
         // rejects people if necessary 
         RUSS.WAITLINE = max_availability(incoming, tempPois);
+        print_data(i);
         
         //pthread_cond_broadcast(&cond);
         pthread_mutex_unlock(&mutex);
@@ -107,7 +107,6 @@ void* ready_queue() {
         usleep(1000);
     }
 
-    print_data(i);
     pthread_cond_broadcast(&cond);
     usleep(1000);
     return NULL;
