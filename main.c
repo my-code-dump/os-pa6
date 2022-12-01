@@ -8,7 +8,7 @@
 #include "random437.h"
 #define MAXWAITPEOPLE 800
 #define MAXTIME 600
-#define PRINTFILE true
+#define PRINTFILE false
 
 /* --- Inititial Global Variables --- */
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -16,11 +16,15 @@ pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
 int timeInterval = 0;
 
+/* --- Time Struct --- */
 struct clockManagement {
     int hour;
     int minute;
-    bool day;
+    int maxHour;
+    int maxMinute;
     char cycle;
+    char maxCycle;
+    bool day;
 } Hackett;
 
 /* --- Main Struct --- */
@@ -30,10 +34,11 @@ struct broncoscountry {
     int ARRIVED;
     int MAXPERCAR; 
     int REJECTED;
-    int TOTALARRIVED;
     int TOTALWHOSRIDE;
+    int TOTALARRIVED;
     int TOTALREJECTED;
-    int arrival[MAXTIME];
+    int MAXLINEDUP;
+    int arrival[MAXWAITPEOPLE];
 } RUSS;
 
 /* --- Helper Functions for Threads --- */
@@ -112,7 +117,17 @@ void update_clock() {
    Hackett.hour = hr;
    Hackett.minute = z;
    Hackett.day = isDayTime;
+}
 
+void find_max_wait() {
+    int tempWaitLine = RUSS.WAITLINE;
+    int tempWhosRide = RUSS.MAXLINEDUP;
+    if (tempWaitLine > tempWhosRide) {
+        RUSS.MAXLINEDUP = RUSS.WAITLINE;         
+        Hackett.maxHour = Hackett.hour;
+        Hackett.maxMinute = Hackett.minute;
+        Hackett.maxCycle = Hackett.cycle;
+    }
 }
 
 void print_data(FILE *fp){
@@ -141,7 +156,7 @@ void* ready_queue() {
 
     int tempPois;
     int incoming;
-    // I represents the time in minutes
+
     for (timeInterval = 0; timeInterval < MAXTIME; timeInterval++) {  
         pthread_mutex_lock(&mutex);
         /* Proccess of the ready queue */
@@ -155,6 +170,7 @@ void* ready_queue() {
         // rejects people if necessary 
         RUSS.WAITLINE = max_availability(incoming, tempPois);
         print_data(fp);
+        find_max_wait();
         update_clock();
         
         //pthread_cond_broadcast(&cond);
@@ -198,6 +214,7 @@ void* car() {
 }
 
 /* --- Helper Functions for MAIN --- */
+// Set all the defaults for the variables
 void set_defaults (int car_num, int max_per_car) {
     RUSS.WAITLINE = 0;
     RUSS.CARNUM = car_num;
@@ -205,12 +222,18 @@ void set_defaults (int car_num, int max_per_car) {
     RUSS.TOTALARRIVED = 0;
     RUSS.TOTALREJECTED = 0;
     RUSS.TOTALWHOSRIDE = 0;
+    RUSS.MAXLINEDUP = 0;
     Hackett.hour = 9;
     Hackett.minute = 0;
     Hackett.cycle = 'A';
     Hackett.day = true;
+
+    for (int z = 0; z < MAXWAITPEOPLE; z++) {
+        RUSS.arrival[z] = 0; 
+    } 
 }
 
+// Creates the threads
 void initiate_rides() {
     int car_num = RUSS.CARNUM;
     int max_per_car = RUSS.MAXPERCAR;
@@ -231,13 +254,16 @@ void initiate_rides() {
     pthread_cond_destroy(&cond);
 }
 
+// Final announcement 
 void final_announcement() {
     printf(" ---- For %d Cars w/ %d Seats ---- \n", 
             RUSS.CARNUM, RUSS.MAXPERCAR); 
     printf("Total PPL Arrived:  %d\n", RUSS.TOTALARRIVED); 
     printf("Total PPL Riding:   %d\n", RUSS.TOTALWHOSRIDE); 
     printf("Total PPL Rejected: %d\n", RUSS.TOTALREJECTED); 
-
+    printf("Max People in Line: %d\n", RUSS.MAXLINEDUP);
+    printf("Longest Line Time:  %02d:%02d:00 %cM\n", Hackett.maxHour, 
+            Hackett.maxMinute, Hackett.maxCycle);
 }
 
 /* --- MAIN --- */
@@ -265,3 +291,4 @@ int main (int argc, char** argv) {
     final_announcement();
     return 0;
 }
+
