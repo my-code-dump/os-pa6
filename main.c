@@ -10,16 +10,11 @@
 #define MAXTIME 600
 #define PRINTFILE true
 
-/* -- Inititial Global Variables --- */
+/* --- Inititial Global Variables --- */
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
-int i;
-void lmao() {
-    char *filename = "2cars7seats.txt";
-    FILE *fp; 
-    fp = fopen(filename,"w+");
-}
+int timeInterval = 0;
 
 struct clockManagement {
     int hour;
@@ -120,13 +115,14 @@ void update_clock() {
 
 }
 
-void print_data(int i){
+void print_data(FILE *fp){
     if (PRINTFILE) {
-        
+        fprintf(fp,"%d,%d,%d,%d\n",timeInterval, RUSS.ARRIVED, 
+                RUSS.REJECTED, RUSS.WAITLINE); 
     }
     else {
         printf("%03d arrive %03d reject %03d wait-line %03d at %02d:%02d:00 %cM\n", 
-                i, RUSS.ARRIVED, RUSS.REJECTED, RUSS.WAITLINE, 
+                timeInterval, RUSS.ARRIVED, RUSS.REJECTED, RUSS.WAITLINE, 
                 Hackett.hour, Hackett.minute, Hackett.cycle);
     }
 }
@@ -134,14 +130,23 @@ void print_data(int i){
 /* --- THREAD FUNCTIONS --- */
 // This is the queue thread's function
 void* ready_queue() {
+    /* --- For outputing to file for graphs --- */
+    char buffer[50];
+    sprintf(buffer, "%dcars%dseats.csv", RUSS.CARNUM, RUSS.MAXPERCAR);
+    char *filename = buffer;
+    FILE *fp; 
+    fp = fopen(filename,"w+");
+    
+    fprintf(fp,"time,arrived,rejected,waitline\n");
+
     int tempPois;
     int incoming;
     // I represents the time in minutes
-    for (i = 0; i < MAXTIME; i++) {  
+    for (timeInterval = 0; timeInterval < MAXTIME; timeInterval++) {  
         pthread_mutex_lock(&mutex);
         /* Proccess of the ready queue */
         // Gets the people arrived for the waiting queue
-        tempPois = poisson_return(i);
+        tempPois = poisson_return(timeInterval);
         RUSS.ARRIVED = tempPois;
         RUSS.TOTALARRIVED += tempPois;
         incoming = RUSS.WAITLINE;
@@ -149,7 +154,7 @@ void* ready_queue() {
         // Determines if the queue is full, 
         // rejects people if necessary 
         RUSS.WAITLINE = max_availability(incoming, tempPois);
-        print_data(i);
+        print_data(fp);
         update_clock();
         
         //pthread_cond_broadcast(&cond);
@@ -170,7 +175,7 @@ void* ready_queue() {
 
 // This is the car thread's functions
 void* car() {
-    while(i < MAXTIME) {  
+    while(timeInterval < MAXTIME) {  
         pthread_mutex_lock(&mutex);
         pthread_cond_wait(&cond,&mutex); 
 
