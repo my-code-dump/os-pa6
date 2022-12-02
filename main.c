@@ -6,7 +6,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include "random437.h"
-#define MAXWAITPEOPLE 800
+#define MAXWAITPEOPLE 20
 #define MAXTIME 600
 #define PRINTFILE false
 
@@ -15,6 +15,16 @@ pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
 int timeInterval = 0;
+
+struct totalWaitTime {
+    int qStart;
+    int qEnd;
+    int tStart;
+    int tEnd;
+    int onThread;
+    int acc;
+    int arrivals[MAXWAITPEOPLE];
+} Berserk;
 
 /* --- Time Struct --- */
 struct clockManagement {
@@ -38,8 +48,8 @@ struct broncoscountry {
     int TOTALARRIVED;
     int TOTALREJECTED;
     int MAXLINEDUP;
-    int arrival[MAXWAITPEOPLE];
-} RUSS;
+    int TOTALWAITIME;
+} Russ;
 
 /* --- Helper Functions for Threads --- */
 // This function helps get the poisson number through the timeslot
@@ -65,22 +75,22 @@ int max_availability(int incoming, int pois) {
     if ((incoming + pois) >= MAXWAITPEOPLE) {
         // If line at the capacity, the incoming people are rejected
         if (incoming == MAXWAITPEOPLE) {
-            RUSS.REJECTED = pois;        
-            RUSS.TOTALREJECTED += pois;
+            Russ.REJECTED = pois;        
+            Russ.TOTALREJECTED += pois;
         }
         // If the line exceeds capacity, figure out who to reject
         // by the following equation below
         else {
             rejection = (incoming + pois) - MAXWAITPEOPLE;
-            RUSS.REJECTED = rejection;
-            RUSS.TOTALREJECTED += rejection;
+            Russ.REJECTED = rejection;
+            Russ.TOTALREJECTED += rejection;
             incoming = MAXWAITPEOPLE;
         }
     }
     else {
         // Else, line is free, nobody is rejected
         incoming += pois;
-        RUSS.REJECTED = 0; 
+        Russ.REJECTED = 0; 
     }
 
     return incoming;
@@ -119,11 +129,80 @@ void update_clock() {
    Hackett.day = isDayTime;
 }
 
+void find_total_wait_queue(int pois, int x) {
+    int tempI = Berserk.qStart;
+    int tempLim = Berserk.qEnd + pois;
+    if (tempLim >= MAXWAITPEOPLE) {
+        for (; tempI < MAXWAITPEOPLE; tempI++) {
+            Berserk.arrivals[tempI] = x; 
+        }
+        tempI = 0;
+        tempLim = tempLim - MAXWAITPEOPLE;
+        for (; tempI < tempLim; tempI++) {
+            Berserk.arrivals[tempI] = x; 
+        }
+    } 
+    else {
+        for (; tempI < tempLim; tempI++) {
+            Berserk.arrivals[tempI] = x; 
+        }
+    }
+    Berserk.qStart = tempI;
+    Berserk.qEnd = tempLim;
+}
+
+void find_total_wait_cars(int pois, int x) {
+    int start = Berserk.tStart;
+    int tempLim = Berserk.tEnd + pois;
+    int curThread = Berserk.onThread;
+    int threadOffset = curThread * Russ.MAXPERCAR + start;
+    int tempACC = Berserk.acc;
+
+    if (threadOffset >= tempLim) {
+         
+    } 
+    else {
+        for (; start < threadOffset; start++) {
+            tempACC += x - Berserk.arrivals[start];
+            Berserk.arrivals[start] = 99;
+        }
+    }
+    if ((curThread + 1) > Russ.CARNUM) {
+        curThread = 1;
+    }
+    else {
+        curThread++;
+    }
+
+    Berserk.tStart = start;
+    Berserk.tEnd = tempLim;
+    Berserk.onThread = curThread;
+    Berserk.acc = tempACC;
+}
+
+void printArr(int y) {
+    printf("\n%d [", y);
+    for (int i = 0; i < MAXWAITPEOPLE; i++) {
+        printf("%2d ", Berserk.arrivals[i]);
+    } 
+    printf("]\n");
+}
+
+void testMe() {
+    for (int i = 0; i < MAXWAITPEOPLE; i++) {
+        find_total_wait_queue(10,(i + 1));
+        printArr(1); 
+        find_total_wait_cars(10,(i + 1));
+        //find_total_wait_cars(10,(i + 1));
+        printArr(2); 
+    }
+}
+
 void find_max_wait() {
-    int tempWaitLine = RUSS.WAITLINE;
-    int tempWhosRide = RUSS.MAXLINEDUP;
+    int tempWaitLine = Russ.WAITLINE;
+    int tempWhosRide = Russ.MAXLINEDUP;
     if (tempWaitLine > tempWhosRide) {
-        RUSS.MAXLINEDUP = RUSS.WAITLINE;         
+        Russ.MAXLINEDUP = Russ.WAITLINE;         
         Hackett.maxHour = Hackett.hour;
         Hackett.maxMinute = Hackett.minute;
         Hackett.maxCycle = Hackett.cycle;
@@ -132,12 +211,12 @@ void find_max_wait() {
 
 void print_data(FILE *fp){
     if (PRINTFILE) {
-        fprintf(fp,"%d,%d,%d,%d\n",timeInterval, RUSS.ARRIVED, 
-                RUSS.REJECTED, RUSS.WAITLINE); 
+        fprintf(fp,"%d,%d,%d,%d\n",timeInterval, Russ.ARRIVED, 
+                Russ.REJECTED, Russ.WAITLINE); 
     }
     else {
         printf("%03d arrive %03d reject %03d wait-line %03d at %02d:%02d:00 %cM\n", 
-                timeInterval, RUSS.ARRIVED, RUSS.REJECTED, RUSS.WAITLINE, 
+                timeInterval, Russ.ARRIVED, Russ.REJECTED, Russ.WAITLINE, 
                 Hackett.hour, Hackett.minute, Hackett.cycle);
     }
 }
@@ -147,7 +226,7 @@ void print_data(FILE *fp){
 void* ready_queue() {
     /* --- For outputing to file for graphs --- */
     char buffer[50];
-    sprintf(buffer, "%dcars%dseats.csv", RUSS.CARNUM, RUSS.MAXPERCAR);
+    sprintf(buffer, "%dcars%dseats.csv", Russ.CARNUM, Russ.MAXPERCAR);
     char *filename = buffer;
     FILE *fp; 
     fp = fopen(filename,"w+");
@@ -162,14 +241,15 @@ void* ready_queue() {
         /* Proccess of the ready queue */
         // Gets the people arrived for the waiting queue
         tempPois = poisson_return(timeInterval);
-        RUSS.ARRIVED = tempPois;
-        RUSS.TOTALARRIVED += tempPois;
-        incoming = RUSS.WAITLINE;
+        Russ.ARRIVED = tempPois;
+        Russ.TOTALARRIVED += tempPois;
+        incoming = Russ.WAITLINE;
 
         // Determines if the queue is full, 
         // rejects people if necessary 
-        RUSS.WAITLINE = max_availability(incoming, tempPois);
+        Russ.WAITLINE = max_availability(incoming, tempPois);
         print_data(fp);
+//        find_total_wait_queue(tempPois);
         find_max_wait();
         update_clock();
         
@@ -195,16 +275,16 @@ void* car() {
         pthread_mutex_lock(&mutex);
         pthread_cond_wait(&cond,&mutex); 
 
-        int tempWaitLine = RUSS.WAITLINE;
-        int tempMaxCar = RUSS.MAXPERCAR;
+        int tempWaitLine = Russ.WAITLINE;
+        int tempMaxCar = Russ.MAXPERCAR;
 
         if ((tempWaitLine - tempMaxCar) > 0) {
-            RUSS.WAITLINE -= tempMaxCar; 
-            RUSS.TOTALWHOSRIDE += tempMaxCar;
+            Russ.WAITLINE -= tempMaxCar; 
+            Russ.TOTALWHOSRIDE += tempMaxCar;
         }
         else {
-            RUSS.TOTALWHOSRIDE += tempWaitLine;
-            RUSS.WAITLINE = 0;
+            Russ.TOTALWHOSRIDE += tempWaitLine;
+            Russ.WAITLINE = 0;
         }
 
         pthread_mutex_unlock(&mutex);
@@ -216,27 +296,36 @@ void* car() {
 /* --- Helper Functions for MAIN --- */
 // Set all the defaults for the variables
 void set_defaults (int car_num, int max_per_car) {
-    RUSS.WAITLINE = 0;
-    RUSS.CARNUM = car_num;
-    RUSS.MAXPERCAR = max_per_car;
-    RUSS.TOTALARRIVED = 0;
-    RUSS.TOTALREJECTED = 0;
-    RUSS.TOTALWHOSRIDE = 0;
-    RUSS.MAXLINEDUP = 0;
+    Russ.WAITLINE = 0;
+    Russ.CARNUM = car_num;
+    Russ.MAXPERCAR = max_per_car;
+    Russ.TOTALARRIVED = 0;
+    Russ.TOTALREJECTED = 0;
+    Russ.TOTALWHOSRIDE = 0;
+    Russ.MAXLINEDUP = 0;
+    Russ.TOTALWAITIME = 0;
+
     Hackett.hour = 9;
     Hackett.minute = 0;
     Hackett.cycle = 'A';
     Hackett.day = true;
 
+    Berserk.qStart = 0;
+    Berserk.qEnd = 0;
+    Berserk.tStart = 0;
+    Berserk.tEnd = 0;
+    Berserk.onThread = 1;
+    Berserk.acc = 0;
     for (int z = 0; z < MAXWAITPEOPLE; z++) {
-        RUSS.arrival[z] = 0; 
+        Berserk.arrivals[z] = 0; 
     } 
+
 }
 
 // Creates the threads
 void initiate_rides() {
-    int car_num = RUSS.CARNUM;
-    int max_per_car = RUSS.MAXPERCAR;
+    int car_num = Russ.CARNUM;
+    int max_per_car = Russ.MAXPERCAR;
 
     pthread_t tid[car_num + 1];
 
@@ -257,11 +346,11 @@ void initiate_rides() {
 // Final announcement 
 void final_announcement() {
     printf(" ---- For %d Cars w/ %d Seats ---- \n", 
-            RUSS.CARNUM, RUSS.MAXPERCAR); 
-    printf("Total PPL Arrived:  %d\n", RUSS.TOTALARRIVED); 
-    printf("Total PPL Riding:   %d\n", RUSS.TOTALWHOSRIDE); 
-    printf("Total PPL Rejected: %d\n", RUSS.TOTALREJECTED); 
-    printf("Max People in Line: %d\n", RUSS.MAXLINEDUP);
+            Russ.CARNUM, Russ.MAXPERCAR); 
+    printf("Total PPL Arrived:  %d\n", Russ.TOTALARRIVED); 
+    printf("Total PPL Riding:   %d\n", Russ.TOTALWHOSRIDE); 
+    printf("Total PPL Rejected: %d\n", Russ.TOTALREJECTED); 
+    printf("Max People in Line: %d\n", Russ.MAXLINEDUP);
     printf("Longest Line Time:  %02d:%02d:00 %cM\n", Hackett.maxHour, 
             Hackett.maxMinute, Hackett.maxCycle);
 }
@@ -286,9 +375,10 @@ int main (int argc, char** argv) {
         }
     }
     // Set the DEFAULTS HERE, CARNUM, MAXPERCAR
-    set_defaults(n,m); 
-    initiate_rides();
-    final_announcement();
+    set_defaults(1,5); 
+    testMe();
+//    initiate_rides();
+  //  final_announcement();
     return 0;
 }
 
