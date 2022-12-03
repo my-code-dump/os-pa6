@@ -17,13 +17,14 @@ pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 int timeInterval = 0;
 
 struct totalWaitTime {
+    int arrivals[MAXWAITPEOPLE];
     int qStart;
     int qEnd;
     int tStart;
     int tEnd;
     int onThread;
     int acc;
-    int arrivals[MAXWAITPEOPLE];
+    bool wrapped;
 } Berserk;
 
 /* --- Time Struct --- */
@@ -51,6 +52,34 @@ struct broncoscountry {
     int TOTALWAITIME;
 } Russ;
 
+// Set all the defaults for the variables
+void set_defaults (int car_num, int max_per_car) {
+    Russ.WAITLINE = 0;
+    Russ.CARNUM = car_num;
+    Russ.MAXPERCAR = max_per_car;
+    Russ.TOTALARRIVED = 0;
+    Russ.TOTALREJECTED = 0;
+    Russ.TOTALWHOSRIDE = 0;
+    Russ.MAXLINEDUP = 0;
+    Russ.TOTALWAITIME = 0;
+
+    Hackett.hour = 9;
+    Hackett.minute = 0;
+    Hackett.cycle = 'A';
+    Hackett.day = true;
+
+    Berserk.qStart = 0;
+    Berserk.qEnd = 0;
+    Berserk.tStart = 0;
+    Berserk.tEnd = 0;
+    Berserk.onThread = 1;
+    Berserk.acc = 0;
+    Berserk.wrapped = false;
+    for (int z = 0; z < MAXWAITPEOPLE; z++) {
+        Berserk.arrivals[z] = 0; 
+    } 
+
+}
 /* --- Helper Functions for Threads --- */
 // This function helps get the poisson number through the timeslot
 int poisson_return(int time) {
@@ -141,6 +170,7 @@ void find_total_wait_queue(int pois, int x) {
         for (; tempI < tempLim; tempI++) {
             Berserk.arrivals[tempI] = x; 
         }
+        Berserk.wrapped = true;
     } 
     else {
         for (; tempI < tempLim; tempI++) {
@@ -151,32 +181,103 @@ void find_total_wait_queue(int pois, int x) {
     Berserk.qEnd = tempLim;
 }
 
-void find_total_wait_cars(int pois, int x) {
-    int start = Berserk.tStart;
-    int tempLim = Berserk.tEnd + pois;
-    int curThread = Berserk.onThread;
-    int threadOffset = curThread * Russ.MAXPERCAR + start;
-    int tempACC = Berserk.acc;
+void printArrThread(int y) {
+    printf("t%d[", y);
+    for (int i = 0; i < MAXWAITPEOPLE; i++) {
+        printf("%2d ", Berserk.arrivals[i]);
+    } 
+    printf("]\n");
+}
 
-    if (threadOffset >= tempLim) {
-         
+int placeHolder = 50;
+
+void find_total_wait_car_smaller(int pois, int x, int pT) {
+    int start = Berserk.tStart;
+    int tempLim = start + Russ.MAXPERCAR;
+    int tempACC = Berserk.acc;
+    
+    if (start >= (MAXWAITPEOPLE - 1)) {
+        start = 0;
+        tempLim = start + Russ.MAXPERCAR;
+    }
+    if (tempLim >= MAXWAITPEOPLE) {
+        for (; start < MAXWAITPEOPLE; start++) {
+            tempACC += x - Berserk.arrivals[start];
+            Berserk.arrivals[start] = 0; 
+        }
+        start = 0;
+        tempLim = tempLim - MAXWAITPEOPLE;
+        for (; start < tempLim; start++) {
+            tempACC += x - Berserk.arrivals[start];
+            Berserk.arrivals[start] = 0; 
+        }
+        printArrThread(pT);
     } 
     else {
-        for (; start < threadOffset; start++) {
+        for (; start < tempLim; start++) {
             tempACC += x - Berserk.arrivals[start];
-            Berserk.arrivals[start] = 99;
+            Berserk.arrivals[start] = 0; 
+        }
+        printArrThread(pT);
+    }
+    Berserk.tStart = start;
+    Berserk.acc = tempACC;
+}
+
+void find_total_wait_cars_bigger(int pois, int x, int pT) {
+    int start = Berserk.tStart;
+    int tempLim = Berserk.qEnd;
+    int seats = Russ.MAXPERCAR;
+    int threadOffset = 0;
+    int tempACC = Berserk.acc;
+    bool remain = false;
+
+    if (Berserk.wrapped) {
+        if ((threadOffset + start + seats) < MAXWAITPEOPLE) {
+            threadOffset += start + seats;
+        } 
+        else if ((threadOffset + start + seats) == MAXWAITPEOPLE){
+            threadOffset = MAXWAITPEOPLE;
+        } 
+        else {
+            threadOffset = MAXWAITPEOPLE;
+            remain = true;
         }
     }
-    if ((curThread + 1) > Russ.CARNUM) {
-        curThread = 1;
-    }
     else {
-        curThread++;
+        if ((threadOffset + start + seats) < tempLim) {
+            threadOffset += start + seats;
+        } 
+        else if ((threadOffset + start + seats) >= tempLim){
+            threadOffset = Berserk.qEnd;
+        } 
     }
 
+    for (; start < threadOffset; start++) {
+        tempACC += x - Berserk.arrivals[start];
+        Berserk.arrivals[start] = 0;
+    }
+
+    printArrThread(pT);
+    if (remain) {
+        start = 0;
+        threadOffset = 0;
+        if ((threadOffset + start + seats) < tempLim) {
+            threadOffset += start + seats;
+        } 
+        else if ((threadOffset + start + seats) >= tempLim){
+            threadOffset = Berserk.qEnd;
+        } 
+
+        for (; start < threadOffset; start++) {
+            tempACC += x - Berserk.arrivals[start];
+            Berserk.arrivals[start] = 0;
+        }
+        Berserk.wrapped = false;
+        printArrThread(pT);
+    }
+    //placeHolder++;
     Berserk.tStart = start;
-    Berserk.tEnd = tempLim;
-    Berserk.onThread = curThread;
     Berserk.acc = tempACC;
 }
 
@@ -189,12 +290,22 @@ void printArr(int y) {
 }
 
 void testMe() {
+    int ps = 10;
+    int carthreadproduct = Russ.CARNUM * Russ.MAXPERCAR;
     for (int i = 0; i < MAXWAITPEOPLE; i++) {
-        find_total_wait_queue(10,(i + 1));
+        find_total_wait_queue(ps,(i + 1));
         printArr(1); 
-        find_total_wait_cars(10,(i + 1));
-        //find_total_wait_cars(10,(i + 1));
-        printArr(2); 
+        for (int z = 0; z < Russ.CARNUM; z++) {
+            if (ps <= carthreadproduct) {
+                find_total_wait_cars_bigger(ps,(i + 1),z);
+            } 
+            else {
+                find_total_wait_car_smaller(ps,(i+1),z);
+            }
+        }
+        printf("Acc = %d\n", Berserk.acc);
+        printf("\n");
+        //printArr(2); 
     }
 }
 
@@ -294,33 +405,7 @@ void* car() {
 }
 
 /* --- Helper Functions for MAIN --- */
-// Set all the defaults for the variables
-void set_defaults (int car_num, int max_per_car) {
-    Russ.WAITLINE = 0;
-    Russ.CARNUM = car_num;
-    Russ.MAXPERCAR = max_per_car;
-    Russ.TOTALARRIVED = 0;
-    Russ.TOTALREJECTED = 0;
-    Russ.TOTALWHOSRIDE = 0;
-    Russ.MAXLINEDUP = 0;
-    Russ.TOTALWAITIME = 0;
 
-    Hackett.hour = 9;
-    Hackett.minute = 0;
-    Hackett.cycle = 'A';
-    Hackett.day = true;
-
-    Berserk.qStart = 0;
-    Berserk.qEnd = 0;
-    Berserk.tStart = 0;
-    Berserk.tEnd = 0;
-    Berserk.onThread = 1;
-    Berserk.acc = 0;
-    for (int z = 0; z < MAXWAITPEOPLE; z++) {
-        Berserk.arrivals[z] = 0; 
-    } 
-
-}
 
 // Creates the threads
 void initiate_rides() {
@@ -375,7 +460,7 @@ int main (int argc, char** argv) {
         }
     }
     // Set the DEFAULTS HERE, CARNUM, MAXPERCAR
-    set_defaults(1,5); 
+    set_defaults(2,4); 
     testMe();
 //    initiate_rides();
   //  final_announcement();
