@@ -6,26 +6,16 @@
 #include <errno.h>
 #include <stdbool.h>
 #include "random437.h"
-#define MAXWAITPEOPLE 20
+#define MAXWAITPEOPLE 800
 #define MAXTIME 600
 #define PRINTFILE false
 
 /* --- Inititial Global Variables --- */
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+pthread_cond_t carGoes = PTHREAD_COND_INITIALIZER;
 
 int timeInterval = 0;
-
-struct totalWaitTime {
-    int arrivals[MAXWAITPEOPLE];
-    int qStart;
-    int qEnd;
-    int tStart;
-    int tEnd;
-    int onThread;
-    int acc;
-    bool wrapped;
-} Berserk;
 
 /* --- Time Struct --- */
 struct clockManagement {
@@ -50,9 +40,12 @@ struct broncoscountry {
     int TOTALREJECTED;
     int MAXLINEDUP;
     int TOTALWAITIME;
+    int carsToThreadProd;
+    int currentCar;
+    int maxWait;
 } Russ;
 
-// Set all the defaults for the variables
+// "Default constructor". Set all the defaults for the variables
 void set_defaults (int car_num, int max_per_car) {
     Russ.WAITLINE = 0;
     Russ.CARNUM = car_num;
@@ -62,24 +55,17 @@ void set_defaults (int car_num, int max_per_car) {
     Russ.TOTALWHOSRIDE = 0;
     Russ.MAXLINEDUP = 0;
     Russ.TOTALWAITIME = 0;
+    Russ.carsToThreadProd = Russ.CARNUM * Russ.MAXPERCAR;
+    Russ.currentCar = 1;
+    Russ.maxWait = 0;
 
     Hackett.hour = 9;
     Hackett.minute = 0;
     Hackett.cycle = 'A';
     Hackett.day = true;
 
-    Berserk.qStart = 0;
-    Berserk.qEnd = 0;
-    Berserk.tStart = 0;
-    Berserk.tEnd = 0;
-    Berserk.onThread = 1;
-    Berserk.acc = 0;
-    Berserk.wrapped = false;
-    for (int z = 0; z < MAXWAITPEOPLE; z++) {
-        Berserk.arrivals[z] = 0; 
-    } 
-
 }
+
 /* --- Helper Functions for Threads --- */
 // This function helps get the poisson number through the timeslot
 int poisson_return(int time) {
@@ -158,157 +144,6 @@ void update_clock() {
    Hackett.day = isDayTime;
 }
 
-void find_total_wait_queue(int pois, int x) {
-    int tempI = Berserk.qStart;
-    int tempLim = Berserk.qEnd + pois;
-    if (tempLim >= MAXWAITPEOPLE) {
-        for (; tempI < MAXWAITPEOPLE; tempI++) {
-            Berserk.arrivals[tempI] = x; 
-        }
-        tempI = 0;
-        tempLim = tempLim - MAXWAITPEOPLE;
-        for (; tempI < tempLim; tempI++) {
-            Berserk.arrivals[tempI] = x; 
-        }
-        Berserk.wrapped = true;
-    } 
-    else {
-        for (; tempI < tempLim; tempI++) {
-            Berserk.arrivals[tempI] = x; 
-        }
-    }
-    Berserk.qStart = tempI;
-    Berserk.qEnd = tempLim;
-}
-
-void printArrThread(int y) {
-    printf("t%d[", y);
-    for (int i = 0; i < MAXWAITPEOPLE; i++) {
-        printf("%2d ", Berserk.arrivals[i]);
-    } 
-    printf("]\n");
-}
-
-int placeHolder = 50;
-
-void find_total_wait_car_smaller(int pois, int x, int pT) {
-    int start = Berserk.tStart;
-    int tempLim = start + Russ.MAXPERCAR;
-    int tempACC = Berserk.acc;
-    
-    if (start >= (MAXWAITPEOPLE - 1)) {
-        start = 0;
-        tempLim = start + Russ.MAXPERCAR;
-    }
-    if (tempLim >= MAXWAITPEOPLE) {
-        for (; start < MAXWAITPEOPLE; start++) {
-            tempACC += x - Berserk.arrivals[start];
-            Berserk.arrivals[start] = 0; 
-        }
-        start = 0;
-        tempLim = tempLim - MAXWAITPEOPLE;
-        for (; start < tempLim; start++) {
-            tempACC += x - Berserk.arrivals[start];
-            Berserk.arrivals[start] = 0; 
-        }
-        printArrThread(pT);
-    } 
-    else {
-        for (; start < tempLim; start++) {
-            tempACC += x - Berserk.arrivals[start];
-            Berserk.arrivals[start] = 0; 
-        }
-        printArrThread(pT);
-    }
-    Berserk.tStart = start;
-    Berserk.acc = tempACC;
-}
-
-void find_total_wait_cars_bigger(int pois, int x, int pT) {
-    int start = Berserk.tStart;
-    int tempLim = Berserk.qEnd;
-    int seats = Russ.MAXPERCAR;
-    int threadOffset = 0;
-    int tempACC = Berserk.acc;
-    bool remain = false;
-
-    if (Berserk.wrapped) {
-        if ((threadOffset + start + seats) < MAXWAITPEOPLE) {
-            threadOffset += start + seats;
-        } 
-        else if ((threadOffset + start + seats) == MAXWAITPEOPLE){
-            threadOffset = MAXWAITPEOPLE;
-        } 
-        else {
-            threadOffset = MAXWAITPEOPLE;
-            remain = true;
-        }
-    }
-    else {
-        if ((threadOffset + start + seats) < tempLim) {
-            threadOffset += start + seats;
-        } 
-        else if ((threadOffset + start + seats) >= tempLim){
-            threadOffset = Berserk.qEnd;
-        } 
-    }
-
-    for (; start < threadOffset; start++) {
-        tempACC += x - Berserk.arrivals[start];
-        Berserk.arrivals[start] = 0;
-    }
-
-    printArrThread(pT);
-    if (remain) {
-        start = 0;
-        threadOffset = 0;
-        if ((threadOffset + start + seats) < tempLim) {
-            threadOffset += start + seats;
-        } 
-        else if ((threadOffset + start + seats) >= tempLim){
-            threadOffset = Berserk.qEnd;
-        } 
-
-        for (; start < threadOffset; start++) {
-            tempACC += x - Berserk.arrivals[start];
-            Berserk.arrivals[start] = 0;
-        }
-        Berserk.wrapped = false;
-        printArrThread(pT);
-    }
-    //placeHolder++;
-    Berserk.tStart = start;
-    Berserk.acc = tempACC;
-}
-
-void printArr(int y) {
-    printf("\n%d [", y);
-    for (int i = 0; i < MAXWAITPEOPLE; i++) {
-        printf("%2d ", Berserk.arrivals[i]);
-    } 
-    printf("]\n");
-}
-
-void testMe() {
-    int ps = 10;
-    int carthreadproduct = Russ.CARNUM * Russ.MAXPERCAR;
-    for (int i = 0; i < MAXWAITPEOPLE; i++) {
-        find_total_wait_queue(ps,(i + 1));
-        printArr(1); 
-        for (int z = 0; z < Russ.CARNUM; z++) {
-            if (ps <= carthreadproduct) {
-                find_total_wait_cars_bigger(ps,(i + 1),z);
-            } 
-            else {
-                find_total_wait_car_smaller(ps,(i+1),z);
-            }
-        }
-        printf("Acc = %d\n", Berserk.acc);
-        printf("\n");
-        //printArr(2); 
-    }
-}
-
 void find_max_wait() {
     int tempWaitLine = Russ.WAITLINE;
     int tempWhosRide = Russ.MAXLINEDUP;
@@ -359,20 +194,24 @@ void* ready_queue() {
         // Determines if the queue is full, 
         // rejects people if necessary 
         Russ.WAITLINE = max_availability(incoming, tempPois);
+
+        // Print for visualization / output
         print_data(fp);
-//        find_total_wait_queue(tempPois);
+
+        // Helper function to help find the worst spot in the queue
         find_max_wait();
+
+        // Updating the time
         update_clock();
         
-        //pthread_cond_broadcast(&cond);
         pthread_mutex_unlock(&mutex);
        
         // Signal the other threads
         pthread_cond_broadcast(&cond);
-        
         // This sleeps allows enough time for 
         // every other proccess to finish 
         usleep(1000);
+ //       pthread_cond_wait(&carGoes,&mutex); 
     }
 
     pthread_cond_broadcast(&cond);
@@ -398,14 +237,59 @@ void* car() {
             Russ.WAITLINE = 0;
         }
 
+        // accumulate the people who are still waiting in line
+        int atCar = Russ.currentCar;
+        int maxCar = Russ.CARNUM;
+
+        if (atCar == maxCar) {
+            Russ.maxWait += Russ.WAITLINE; 
+            atCar = 1;
+        }
+        else {
+            atCar++;
+        }
+
+        Russ.currentCar = atCar;
+        /*
+        int atCar = Russ.currentCar;
+        int maxCar = Russ.CARNUM;
+        printf("%d car, %d max\n", atCar, maxCar);
+        if (atCar == maxCar) {
+            printf("Im suppose to be here\n");
+            atCar = 1;
+            pthread_cond_signal(&carGoes);
+        }
+        else {
+            printf("Im also suppose to be here\n");
+            atCar++;
+        }
+        
+        Russ.currentCar = atCar;
+*/
         pthread_mutex_unlock(&mutex);
+/*
+        printf("Im here\n");
+        int atCar = Russ.currentCar;
+        int maxCar = Russ.CARNUM;
+        printf("%d car, %d max\n", atCar, maxCar);
+        if (atCar == maxCar) {
+            printf("Im suppose to be here\n");
+            atCar = 1;
+            pthread_cond_broadcast(&carGoes);
+        }
+        else {
+            printf("Im also suppose to be here\n");
+            atCar++;
+        }
+        
+        Russ.currentCar = atCar;
+*/
     }
 
     return NULL;
 }
 
 /* --- Helper Functions for MAIN --- */
-
 
 // Creates the threads
 void initiate_rides() {
@@ -414,11 +298,11 @@ void initiate_rides() {
 
     pthread_t tid[car_num + 1];
 
+    pthread_create(&tid[0], NULL, ready_queue, NULL);
+
     for (int i = 1; i <= car_num; i++) {
         pthread_create(&tid[i], NULL, car, NULL);
     }
-
-    pthread_create(&tid[0], NULL, ready_queue, NULL);
 
     for (int i = 0; i <= car_num; i++) {
         pthread_join(tid[i],NULL);
@@ -430,6 +314,9 @@ void initiate_rides() {
 
 // Final announcement 
 void final_announcement() {
+    double avgWait = (double) Russ.maxWait / Russ.TOTALARRIVED;
+    int avgMin = (int) avgWait;
+    float avgSec = fmod(avgWait,(float) avgMin) * 60;
     printf(" ---- For %d Cars w/ %d Seats ---- \n", 
             Russ.CARNUM, Russ.MAXPERCAR); 
     printf("Total PPL Arrived:  %d\n", Russ.TOTALARRIVED); 
@@ -438,6 +325,7 @@ void final_announcement() {
     printf("Max People in Line: %d\n", Russ.MAXLINEDUP);
     printf("Longest Line Time:  %02d:%02d:00 %cM\n", Hackett.maxHour, 
             Hackett.maxMinute, Hackett.maxCycle);
+    printf("Average Wait Time:  %.0f:%.0f minutes\n", avgWait, avgSec);
 }
 
 /* --- MAIN --- */
@@ -460,10 +348,9 @@ int main (int argc, char** argv) {
         }
     }
     // Set the DEFAULTS HERE, CARNUM, MAXPERCAR
-    set_defaults(2,4); 
-    testMe();
-//    initiate_rides();
-  //  final_announcement();
+    set_defaults(n,m); 
+    initiate_rides();
+    final_announcement();
     return 0;
 }
 
