@@ -42,7 +42,6 @@ struct broncoscountry {
     int TOTALREJECTED;
     int MAXLINEDUP;
     int TOTALWAITIME;
-    int carsToThreadProd;
     int currentCar;
     int maxWait;
 } Russ;
@@ -57,7 +56,6 @@ void set_defaults (int car_num, int max_per_car) {
     Russ.TOTALWHOSRIDE = 0;
     Russ.MAXLINEDUP = 0;
     Russ.TOTALWAITIME = 0;
-    Russ.carsToThreadProd = Russ.CARNUM * Russ.MAXPERCAR;
     Russ.currentCar = 1;
     Russ.maxWait = 0;
 
