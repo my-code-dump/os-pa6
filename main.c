@@ -17,7 +17,7 @@ pthread_cond_t carGoes = PTHREAD_COND_INITIALIZER;
 
 int timeInterval = 0;
 bool rdyQRun = false;
-bool carRun = true;
+bool carRun = false;
 
 /* --- Time Struct --- */
 struct clockManagement {
