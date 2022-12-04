@@ -16,6 +16,8 @@ pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t carGoes = PTHREAD_COND_INITIALIZER;
 
 int timeInterval = 0;
+bool rdyQRun = false;
+bool carRun = true;
 
 /* --- Time Struct --- */
 struct clockManagement {
@@ -63,7 +65,6 @@ void set_defaults (int car_num, int max_per_car) {
     Hackett.minute = 0;
     Hackett.cycle = 'A';
     Hackett.day = true;
-
 }
 
 /* --- Helper Functions for Threads --- */
@@ -111,15 +112,19 @@ int max_availability(int incoming, int pois) {
     return incoming;
 } 
 
+// Function to update the simulation clock with AM and PM
 void update_clock() {
    int z = Hackett.minute;
    int hr = Hackett.hour;
    bool isDayTime = Hackett.day;
+
    if (z == 59) {
         hr++;
         z = 0;
         if (hr > 12) {
             hr = hr - 12; 
+        }
+        else if (hr == 12) {
             if (isDayTime) {
                 isDayTime = false;
             }
@@ -144,6 +149,7 @@ void update_clock() {
    Hackett.day = isDayTime;
 }
 
+// Find the time that has the FIRST longest waiting line
 void find_max_wait() {
     int tempWaitLine = Russ.WAITLINE;
     int tempWhosRide = Russ.MAXLINEDUP;
@@ -155,6 +161,7 @@ void find_max_wait() {
     }
 }
 
+// Print function to file / to see outputs
 void print_data(FILE *fp){
     if (PRINTFILE) {
         fprintf(fp,"%d,%d,%d,%d\n",timeInterval, Russ.ARRIVED, 
@@ -182,8 +189,21 @@ void* ready_queue() {
     int tempPois;
     int incoming;
 
+    // For syncing the first interval. 
+    rdyQRun = true;
+    
     for (timeInterval = 0; timeInterval < MAXTIME; timeInterval++) {  
+        /* --- Ready Queue's Critical Section --- */
         pthread_mutex_lock(&mutex);
+        // To ensure if, at the begining, the cars start first, then they will
+        // be stuck waiting. This is for broadcasting them to stop waiting. The queue will
+        // in the cs before the cars so this will ensure the queue is ALWAYS first
+        if (timeInterval == 0) {
+            if (carRun) {
+                pthread_cond_broadcast(&cond);
+            }
+        }
+
         /* Proccess of the ready queue */
         // Gets the people arrived for the waiting queue
         tempPois = poisson_return(timeInterval);
@@ -204,30 +224,41 @@ void* ready_queue() {
         // Updating the time
         update_clock();
         
-        pthread_mutex_unlock(&mutex);
-       
-        // Signal the other threads
+        // Tasked finished, braodcast all the threads
         pthread_cond_broadcast(&cond);
-        // This sleeps allows enough time for 
-        // every other proccess to finish 
-        usleep(1000);
- //       pthread_cond_wait(&carGoes,&mutex); 
+
+        // Call wait on queue so the cars can do its task
+        pthread_cond_wait(&carGoes,&mutex); 
+
+        pthread_mutex_unlock(&mutex);
     }
 
     pthread_cond_broadcast(&cond);
-    usleep(1000);
+
     return NULL;
 }
 
 // This is the car thread's functions
 void* car() {
+    // Synchronization, if a car thread goes first before
+    // the queue, it will be forced to waiti. Mutex lock here
+    // for when the other cars access the same values
+    pthread_mutex_lock(&mutex);
+    carRun = true;
+    if (!rdyQRun) {
+        pthread_cond_wait(&cond,&mutex);
+    }
+    pthread_mutex_unlock(&mutex);
+
     while(timeInterval < MAXTIME) {  
+        /* --- Car's Critical Section --- */
         pthread_mutex_lock(&mutex);
-        pthread_cond_wait(&cond,&mutex); 
 
         int tempWaitLine = Russ.WAITLINE;
         int tempMaxCar = Russ.MAXPERCAR;
 
+        // Subtracts neccessary ammount of people from
+        // the line
         if ((tempWaitLine - tempMaxCar) > 0) {
             Russ.WAITLINE -= tempMaxCar; 
             Russ.TOTALWHOSRIDE += tempMaxCar;
@@ -237,53 +268,24 @@ void* car() {
             Russ.WAITLINE = 0;
         }
 
-        // accumulate the people who are still waiting in line
         int atCar = Russ.currentCar;
         int maxCar = Russ.CARNUM;
 
+        // Will signal the queue once on the last car.
+        // Also updates the max waiting on the last car
+        Russ.currentCar = atCar;
         if (atCar == maxCar) {
             Russ.maxWait += Russ.WAITLINE; 
-            atCar = 1;
-        }
-        else {
-            atCar++;
-        }
-
-        Russ.currentCar = atCar;
-        /*
-        int atCar = Russ.currentCar;
-        int maxCar = Russ.CARNUM;
-        printf("%d car, %d max\n", atCar, maxCar);
-        if (atCar == maxCar) {
-            printf("Im suppose to be here\n");
             atCar = 1;
             pthread_cond_signal(&carGoes);
         }
         else {
-            printf("Im also suppose to be here\n");
             atCar++;
         }
         
         Russ.currentCar = atCar;
-*/
+        pthread_cond_wait(&cond,&mutex); 
         pthread_mutex_unlock(&mutex);
-/*
-        printf("Im here\n");
-        int atCar = Russ.currentCar;
-        int maxCar = Russ.CARNUM;
-        printf("%d car, %d max\n", atCar, maxCar);
-        if (atCar == maxCar) {
-            printf("Im suppose to be here\n");
-            atCar = 1;
-            pthread_cond_broadcast(&carGoes);
-        }
-        else {
-            printf("Im also suppose to be here\n");
-            atCar++;
-        }
-        
-        Russ.currentCar = atCar;
-*/
     }
 
     return NULL;
